@@ -1,83 +1,78 @@
 const express = require('express');
 const router = express.Router();
-const pool = require('../db');
 
-// Función auxiliar para calcular edad exacta a partir de la fecha de nacimiento
-const calcularEdad = (fechaNacimiento) => {
-  const hoy = new Date();
-  const nacimiento = new Date(fechaNacimiento);
-  let edad = hoy.getFullYear() - nacimiento.getFullYear();
-  const mes = hoy.getMonth() - nacimiento.getMonth();
-  if (mes < 0 || (mes === 0 && hoy.getDate() < nacimiento.getDate())) {
-    edad--;
-  }
-  return edad;
-};
-
-// Función dinámica para comparar valores según el operador
-const evaluarRegla = (valorUsuario, operador, valorReferencia) => {
-  switch (operador) {
-    case '=':
-      return String(valorUsuario).toLowerCase() === String(valorReferencia).toLowerCase();
-    case '<=':
-      return String(valorUsuario).localeCompare(String(valorReferencia), undefined, { numeric: true }) <= 0;
-    case '>=':
-      return Number(valorUsuario) >= Number(valorReferencia);
-    case '>':
-      return Number(valorUsuario) > Number(valorReferencia);
-    case '<':
-      return Number(valorUsuario) < Number(valorReferencia);
-    default:
-      return false;
-  }
-};
-
-// POST /api/evaluar - Ejecuta el cruce proactivo de todos los ciudadanos contra los subsidios
-router.post('/', async (req, res) => {
-  const connection = await pool.getConnection();
-
+let db;
+try {
+  db = require('../db');
+} catch (e) {
   try {
-    await connection.beginTransaction();
+    db = require('../config/db');
+  } catch (err) {
+    db = require('../../db');
+  }
+}
 
-    // 1. Obtener todos los ciudadanos y los subsidios activos con sus criterios
-    const [usuarios] = await connection.query("SELECT * FROM usuarios WHERE rol = 'ciudadano'");
-    const [subsidios] = await connection.query("SELECT * FROM subsidios WHERE estado = 'activo'");
-    const [criterios] = await connection.query("SELECT * FROM criterios_subsidio");
+// Ejecutar Motor Proactivo de Subsidios
+router.post('/ejecutar', async (req, res) => {
+  try {
+    // 1. Obtener todos los subsidios activos
+    const [subsidios] = await db.query('SELECT * FROM subsidios');
+    
+    // 2. Obtener todos los ciudadanos registrados
+    const [usuarios] = await db.query("SELECT * FROM usuarios WHERE rol = 'ciudadano'");
 
     let notificacionesGeneradas = 0;
 
-    for (const usuario of usuarios) {
-      const edadUsuario = calcularEdad(usuario.fecha_nacimiento);
+    for (const subsidio of subsidios) {
+      let criterios = [];
+      try {
+        criterios = typeof subsidio.criterios === 'string' ? JSON.parse(subsidio.criterios) : subsidio.criterios;
+      } catch (e) {
+        criterios = [];
+      }
 
-      for (const subsidio of subsidios) {
-        const reglas = criterios.filter(c => c.subsidio_id === subsidio.id);
-        
-        // Verificar si el usuario cumple TODAS las reglas dinámicas del subsidio
-        const cumpleTodasLasReglas = reglas.every(regla => {
-          let valorAEvaluar;
-          if (regla.campo_evaluar === 'edad') {
-            valorAEvaluar = edadUsuario;
-          } else {
-            valorAEvaluar = usuario[regla.campo_evaluar];
+      for (const usuario of usuarios) {
+        let cumple = true;
+
+        if (Array.isArray(criterios)) {
+          for (const c of criterios) {
+            const campo = c.campo_evaluar || c.campo;
+            const operador = c.operador;
+            const valorRef = c.valor_referencia || c.valor;
+            const valorUser = usuario[campo];
+
+            if (valorUser === undefined) {
+              cumple = false;
+              break;
+            }
+
+            if (operador === '=' && String(valorUser).trim() !== String(valorRef).trim()) {
+              cumple = false;
+              break;
+            }
+            if (operador === '<=' && String(valorUser) > String(valorRef)) {
+              cumple = false;
+              break;
+            }
+            if (operador === '>=' && String(valorUser) < String(valorRef)) {
+              cumple = false;
+              break;
+            }
           }
-          return evaluarRegla(valorAEvaluar, regla.operador, regla.valor_referencia);
-        });
+        }
 
-        // Si es apto, insertamos la notificación (evitando duplicados)
-        if (cumpleTodasLasReglas) {
-          const [existente] = await connection.query(
+        if (cumple) {
+          // Verificar si ya existe una notificación para este usuario y subsidio para evitar duplicados
+          const [existente] = await db.query(
             'SELECT id FROM notificaciones WHERE usuario_id = ? AND subsidio_id = ?',
             [usuario.id, subsidio.id]
           );
 
           if (existente.length === 0) {
-            await connection.query(
-              'INSERT INTO notificaciones (usuario_id, subsidio_id, mensaje) VALUES (?, ?, ?)',
-              [
-                usuario.id,
-                subsidio.id,
-                `¡Hola ${usuario.nombre}! Cumples con los requisitos para acceder al programa: ${subsidio.nombre}.`
-              ]
+            const mensaje = `¡Hola ${usuario.nombre}! Cumples con los requisitos para acceder al programa: ${subsidio.nombre}.`;
+            await db.query(
+              'INSERT INTO notificaciones (usuario_id, subsidio_id, mensaje, fecha_notificacion) VALUES (?, ?, ?, NOW())',
+              [usuario.id, subsidio.id, mensaje]
             );
             notificacionesGeneradas++;
           }
@@ -85,31 +80,13 @@ router.post('/', async (req, res) => {
       }
     }
 
-    await connection.commit();
-    res.json({ mensaje: 'Evaluación masiva completada', notificacionesGeneradas });
-
+    res.json({ 
+      mensaje: 'Evaluación proactiva ejecutada correctamente', 
+      notificacionesGeneradas 
+    });
   } catch (error) {
-    await connection.rollback();
-    res.status(500).json({ error: 'Error en el proceso de focalización', detalle: error.message });
-  } finally {
-    connection.release();
-  }
-});
-
-// GET /api/evaluar/notificaciones/:usuarioId - Consultar notificaciones de un usuario
-router.get('/notificaciones/:usuarioId', async (req, res) => {
-  try {
-    const { usuarioId } = req.params;
-    const [notificaciones] = await pool.query(
-      `SELECT n.id, s.nombre AS subsidio, n.mensaje, n.fecha_notificacion, n.leido 
-       FROM notificaciones n 
-       JOIN subsidios s ON n.subsidio_id = s.id 
-       WHERE n.usuario_id = ?`,
-      [usuarioId]
-    );
-    res.json(notificaciones);
-  } catch (error) {
-    res.status(500).json({ error: 'Error al consultar notificaciones', detalle: error.message });
+    console.error('Error detallado al ejecutar el evaluador:', error);
+    res.status(500).json({ error: 'Error interno al ejecutar el motor de evaluación' });
   }
 });
 

@@ -1,92 +1,148 @@
 const express = require('express');
 const router = express.Router();
-const pool = require('../db');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'secreto_super_seguro_plataforma';
+let db;
+try {
+  db = require('../db');
+} catch (e) {
+  try {
+    db = require('../config/db');
+  } catch (err) {
+    db = require('../../db');
+  }
+}
 
-// POST /api/auth/registro - Registro de nuevos ciudadanos
+// Registrar usuario
 router.post('/registro', async (req, res) => {
-  const { cedula, nombre, email, password, fecha_nacimiento, sisben_grupo, zona } = req.body;
+  const { cedula, nombre, email, password, fecha_nacimiento, sisben_grupo, zona, rol } = req.body;
 
   try {
-    const [existente] = await pool.query(
-      'SELECT id FROM usuarios WHERE cedula = ? OR email = ?',
-      [cedula, email]
-    );
-
+    const [existente] = await db.query('SELECT * FROM usuarios WHERE email = ? OR cedula = ?', [email, cedula]);
     if (existente.length > 0) {
-      return res.status(400).json({ error: 'La cédula o el correo ya se encuentran registrados' });
+      return res.status(400).json({ error: 'El usuario ya existe con ese correo o cédula' });
     }
 
-    const passwordHash = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password || '123456', 10);
+    const userRol = rol || 'ciudadano';
 
-    const [result] = await pool.query(
-      `INSERT INTO usuarios (cedula, nombre, email, password, fecha_nacimiento, sisben_grupo, zona, rol) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'ciudadano')`,
-      [cedula, nombre, email, passwordHash, fecha_nacimiento, sisben_grupo, zona]
+    const [result] = await db.query(
+      'INSERT INTO usuarios (cedula, nombre, email, password, fecha_nacimiento, sisben_grupo, zona, rol) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [cedula, nombre, email, hashedPassword, fecha_nacimiento, sisben_grupo, zona, userRol]
     );
 
-    res.status(201).json({
-      mensaje: 'Usuario registrado con éxito',
-      usuarioId: result.insertId
-    });
+    res.status(201).json({ mensaje: 'Usuario registrado exitosamente', id: result.insertId });
   } catch (error) {
-    res.status(500).json({ error: 'Error al registrar usuario', detalle: error.message });
+    console.error('Error al registrar usuario:', error);
+    res.status(500).json({ error: 'Error en el servidor al registrar usuario' });
   }
 });
 
-// POST /api/auth/login - Inicio de sesión híbrido (texto plano y bcrypt)
+// Login híbrido
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
   try {
-    const [usuarios] = await pool.query('SELECT * FROM usuarios WHERE email = ?', [email]);
-    
-    if (usuarios.length === 0) {
-      return res.status(401).json({ error: 'Credenciales inválidas' });
+    const [rows] = await db.query('SELECT * FROM usuarios WHERE email = ?', [email]);
+    if (rows.length === 0) {
+      return res.status(400).json({ error: 'Credenciales inválidas' });
     }
 
-    const usuario = usuarios[0];
-    let esValido = false;
+    const usuario = rows[0];
+    let passwordValido = false;
 
-    // Si la contraseña en BD está encriptada con bcrypt
-    if (usuario.password.startsWith('$2a$') || usuario.password.startsWith('$2b$')) {
-      esValido = await bcrypt.compare(password, usuario.password);
+    if (usuario.password.startsWith('$2b$') || usuario.password.startsWith('$2a$')) {
+      passwordValido = await bcrypt.compare(password, usuario.password);
     } else {
-      // Si está en texto plano (casos antiguos o creados por SQL directo)
-      esValido = (password === usuario.password);
-
-      // Auto-migración: Si la clave en texto plano coincide, la encriptamos de una vez en BD
-      if (esValido) {
-        const nuevoHash = await bcrypt.hash(password, 10);
-        await pool.query('UPDATE usuarios SET password = ? WHERE id = ?', [nuevoHash, usuario.id]);
+      if (usuario.password === password) {
+        passwordValido = true;
+        const newHash = await bcrypt.hash(password, 10);
+        await db.query('UPDATE usuarios SET password = ? WHERE id = ?', [newHash, usuario.id]);
       }
     }
 
-    if (!esValido) {
-      return res.status(401).json({ error: 'Credenciales inválidas' });
+    if (!passwordValido) {
+      return res.status(400).json({ error: 'Credenciales inválidas' });
     }
 
     const token = jwt.sign(
-      { id: usuario.id, nombre: usuario.nombre, rol: usuario.rol },
-      JWT_SECRET,
+      { id: usuario.id, rol: usuario.rol },
+      process.env.JWT_SECRET || 'secretkey',
       { expiresIn: '8h' }
     );
 
-    res.json({
-      mensaje: 'Inicio de sesión exitoso',
-      token,
-      usuario: {
-        id: usuario.id,
-        nombre: usuario.nombre,
-        email: usuario.email,
-        rol: usuario.rol
-      }
-    });
+    delete usuario.password;
+    res.json({ token, usuario });
   } catch (error) {
-    res.status(500).json({ error: 'Error en el servidor al iniciar sesión', detalle: error.message });
+    console.error('Error en login:', error);
+    res.status(500).json({ error: 'Error en el servidor durante el login' });
+  }
+});
+
+// Actualizar datos del perfil
+router.put('/perfil/:id', async (req, res) => {
+  const { id } = req.params;
+  const { nombre, cedula, email, password } = req.body;
+
+  try {
+    let campos = ['nombre = ?', 'cedula = ?', 'email = ?'];
+    let valores = [nombre, cedula, email];
+
+    if (password && password.trim() !== '') {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      campos.push('password = ?');
+      valores.push(hashedPassword);
+    }
+
+    valores.push(id);
+
+    const query = `UPDATE usuarios SET ${campos.join(', ')} WHERE id = ?`;
+    await db.query(query, valores);
+
+    res.json({ mensaje: 'Perfil actualizado correctamente' });
+  } catch (error) {
+    console.error('Error al actualizar perfil:', error);
+    res.status(500).json({ error: 'Error al actualizar la información del usuario en la base de datos' });
+  }
+});
+
+// Buscar ciudadano por cédula con sus notificaciones
+router.get('/buscar/:cedula', async (req, res) => {
+  const { cedula } = req.params;
+
+  try {
+    const [usuarios] = await db.query(
+      'SELECT id, cedula, nombre, email, fecha_nacimiento, sisben_grupo, zona, rol FROM usuarios WHERE cedula = ?',
+      [cedula]
+    );
+
+    if (usuarios.length === 0) {
+      return res.status(404).json({ error: 'Ciudadano no encontrado con esa cédula' });
+    }
+
+    const usuario = usuarios[0];
+    let notificaciones = [];
+
+    try {
+      const [notifs] = await db.query(
+        `SELECT n.id, n.mensaje, n.fecha_notificacion, 
+                COALESCE(s.nombre, 'Programa Social') AS subsidio 
+         FROM notificaciones n 
+         LEFT JOIN subsidios s ON n.subsidio_id = s.id 
+         WHERE n.usuario_id = ? 
+         ORDER BY n.fecha_notificacion DESC`,
+        [usuario.id]
+      );
+      notificaciones = notifs;
+    } catch (errNotif) {
+      console.warn('Advertencia al consultar notificaciones:', errNotif.message);
+    }
+
+    res.json({ usuario, notificaciones });
+  } catch (error) {
+    console.error('Error al buscar ciudadano:', error);
+    res.status(500).json({ error: 'Error interno al consultar información del ciudadano' });
   }
 });
 

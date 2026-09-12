@@ -1,93 +1,397 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import AdminPanel from './components/AdminPanel';
-import CiudadanoPanel from './components/CiudadanoPanel';
+import api from './services/api';
 
-function App() {
-  const [vista, setVista] = useState('ciudadano');
-  const [usuarioSesion, setUsuarioSesion] = useState(null);
+export default function App() {
+  const [isAutenticado, setIsAutenticado] = useState(() => {
+    return !!localStorage.getItem('token');
+  });
 
-  const manejarLogin = (usuario, token) => {
-    setUsuarioSesion(usuario);
-    localStorage.setItem('token', token);
-    if (usuario.rol === 'admin') {
-      setVista('admin');
-    } else {
-      setVista('ciudadano');
+  const [usuarioActual, setUsuarioActual] = useState(() => {
+    const userGuardado = localStorage.getItem('usuario');
+    return userGuardado ? JSON.parse(userGuardado) : null;
+  });
+
+  const [vistaActual, setVistaActual] = useState(() => {
+    const user = localStorage.getItem('usuario');
+    if (user) {
+      try {
+        const parsed = JSON.parse(user);
+        return parsed.rol === 'admin' ? 'admin' : 'ciudadano';
+      } catch (e) {
+        return 'admin';
+      }
+    }
+    return 'login';
+  });
+
+  const [modoRegistro, setModoRegistro] = useState(false);
+
+  // Estados para Login
+  const [emailInput, setEmailInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [errorLogin, setErrorLogin] = useState('');
+
+  // Estados para Registro Ciudadano
+  const [regCedula, setRegCedula] = useState('');
+  const [regNombre, setRegNombre] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+  const [regFechaNac, setRegFechaNac] = useState('');
+  const [regSisben, setRegSisben] = useState('A1');
+  const [regZona, setRegZona] = useState('Urbana');
+  const [mensajeRegistro, setMensajeRegistro] = useState('');
+
+  // Estados del Portal Ciudadano (para el usuario logueado)
+  const [datosCiudadanoPortal, setDatosCiudadanoPortal] = useState(null);
+  const [cargandoPortal, setCargandoPortal] = useState(false);
+
+  useEffect(() => {
+    if (isAutenticado && usuarioActual && usuarioActual.rol !== 'admin') {
+      cargarDatosPortal(usuarioActual.cedula);
+    }
+  }, [isAutenticado, usuarioActual]);
+
+  const cargarDatosPortal = async (cedula) => {
+    setCargandoPortal(true);
+    try {
+      const res = await api.get(`/auth/buscar/${cedula}`);
+      setDatosCiudadanoPortal(res.data);
+    } catch (err) {
+      console.error('Error al cargar datos del ciudadano', err);
+    } finally {
+      setCargandoPortal(false);
     }
   };
 
-  const manejarLogout = () => {
-    setUsuarioSesion(null);
-    localStorage.removeItem('token');
-    setVista('ciudadano');
+  const manejarLogin = async (e) => {
+    e.preventDefault();
+    setErrorLogin('');
+
+    try {
+      const response = await api.post('/auth/login', {
+        email: emailInput,
+        password: passwordInput
+      });
+
+      const { token, usuario } = response.data;
+
+      localStorage.setItem('token', token);
+      localStorage.setItem('usuario', JSON.stringify(usuario));
+      
+      setIsAutenticado(true);
+      setUsuarioActual(usuario);
+      setVistaActual(usuario.rol === 'admin' ? 'admin' : 'ciudadano');
+    } catch (err) {
+      setErrorLogin(err.response?.data?.error || 'Credenciales incorrectas o error en el servidor.');
+    }
   };
 
-  const esAdmin = usuarioSesion?.rol === 'admin';
+  const manejarRegistro = async (e) => {
+    e.preventDefault();
+    setMensajeRegistro('');
 
-  return (
-    <div>
-      {/* Header Superior Limpio */}
-      <header style={{ borderBottom: '1px solid var(--border-color)', background: 'var(--bg-surface)', padding: '16px 40px' }}>
-        <div style={{ maxWidth: '1000px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: 'var(--primary)' }}></div>
-            <h1 style={{ fontSize: '18px', fontWeight: '700', letterSpacing: '-0.5px' }}>Alcaldía de Valencia</h1>
-            <span style={{ color: 'var(--border-color)' }}>|</span>
-            <span style={{ color: 'var(--text-muted)', fontSize: '14px' }}>Focalización Social</span>
+    try {
+      await api.post('/auth/registro', {
+        cedula: regCedula,
+        nombre: regNombre,
+        email: regEmail,
+        password: regPassword,
+        fecha_nacimiento: regFechaNac,
+        sisben_grupo: regSisben,
+        zona: regZona,
+        rol: 'ciudadano'
+      });
+
+      alert('¡Registro exitoso! Ahora puedes iniciar sesión con tu correo y contraseña.');
+      setModoRegistro(false);
+      setEmailInput(regEmail);
+      setPasswordInput(regPassword);
+    } catch (err) {
+      setMensajeRegistro(err.response?.data?.error || 'Error al registrarse.');
+    }
+  };
+
+  const cerrarSesion = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('usuario');
+    setIsAutenticado(false);
+    setUsuarioActual(null);
+    setVistaActual('login');
+  };
+
+  // Pantalla de Autenticación / Registro
+  if (!isAutenticado) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#0f172a', color: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+        <div style={{ background: '#1e293b', padding: '40px', borderRadius: '12px', width: '100%', maxWidth: '440px', border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.3)' }}>
+          
+          <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+            <h2 style={{ fontSize: '22px', fontWeight: '700', marginBottom: '8px', color: '#f8fafc' }}>Alcaldía de Valencia</h2>
+            <p style={{ fontSize: '13px', color: '#94a3b8' }}>Portal de Focalización Social</p>
           </div>
 
-          <nav style={{ display: 'flex', gap: '8px' }}>
-            <button 
-              onClick={() => setVista('ciudadano')} 
-              style={{
-                padding: '8px 16px',
-                borderRadius: '8px',
-                fontSize: '14px',
-                fontWeight: '500',
-                border: '1px solid',
-                borderColor: vista === 'ciudadano' ? 'var(--primary)' : 'transparent',
-                background: vista === 'ciudadano' ? 'rgba(56, 189, 248, 0.1)' : 'transparent',
-                color: vista === 'ciudadano' ? 'var(--primary)' : 'var(--text-muted)',
-                cursor: 'pointer'
-              }}>
-              Portal Ciudadano
-            </button>
-            
-            {esAdmin && (
-              <button 
-                onClick={() => setVista('admin')} 
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  border: '1px solid',
-                  borderColor: vista === 'admin' ? 'var(--primary)' : 'transparent',
-                  background: vista === 'admin' ? 'rgba(56, 189, 248, 0.1)' : 'transparent',
-                  color: vista === 'admin' ? 'var(--primary)' : 'var(--text-muted)',
-                  cursor: 'pointer'
-                }}>
-                Panel Administrador
-              </button>
-            )}
-          </nav>
+          {!modoRegistro ? (
+            /* FORMULARIO DE LOGIN */
+            <div>
+              <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '16px', color: '#38bdf8' }}>Iniciar Sesión</h3>
+              
+              {errorLogin && (
+                <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#f87171', padding: '10px', borderRadius: '6px', fontSize: '13px', marginBottom: '16px', textAlign: 'center' }}>
+                  {errorLogin}
+                </div>
+              )}
+
+              <form onSubmit={manejarLogin} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: '6px' }}>Correo Electrónico</label>
+                  <input 
+                    type="email" 
+                    value={emailInput}
+                    onChange={(e) => setEmailInput(e.target.value)}
+                    style={{ width: '100%', padding: '10px 12px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '14px' }}
+                    placeholder="correo@dominio.com"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: '6px' }}>Contraseña</label>
+                  <input 
+                    type="password" 
+                    value={passwordInput}
+                    onChange={(e) => setPasswordInput(e.target.value)}
+                    style={{ width: '100%', padding: '10px 12px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '14px' }}
+                    placeholder="••••••••"
+                    required
+                  />
+                </div>
+
+                <button 
+                  type="submit"
+                  style={{ background: '#38bdf8', color: '#0f172a', border: 'none', padding: '12px', borderRadius: '6px', fontWeight: '600', cursor: 'pointer', fontSize: '14px', marginTop: '6px' }}>
+                  Ingresar
+                </button>
+              </form>
+
+              <div style={{ marginTop: '20px', textAlign: 'center', borderTop: '1px solid #334155', paddingTop: '16px' }}>
+                <p style={{ fontSize: '13px', color: '#94a3b8' }}>
+                  ¿No tienes cuenta de ciudadano?{' '}
+                  <button 
+                    onClick={() => setModoRegistro(true)}
+                    style={{ background: 'none', border: 'none', color: '#38bdf8', cursor: 'pointer', fontWeight: '600', fontSize: '13px', textDecoration: 'underline' }}>
+                    Regístrate aquí
+                  </button>
+                </p>
+              </div>
+            </div>
+          ) : (
+            /* FORMULARIO DE REGISTRO */
+            <div>
+              <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '16px', color: '#38bdf8' }}>Registro Ciudadano</h3>
+
+              {mensajeRegistro && (
+                <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#f87171', padding: '10px', borderRadius: '6px', fontSize: '13px', marginBottom: '16px', textAlign: 'center' }}>
+                  {mensajeRegistro}
+                </div>
+              )}
+
+              <form onSubmit={manejarRegistro} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: '4px' }}>Cédula</label>
+                  <input type="text" value={regCedula} onChange={(e) => setRegCedula(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '13px' }} required />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: '4px' }}>Nombre Completo</label>
+                  <input type="text" value={regNombre} onChange={(e) => setRegNombre(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '13px' }} required />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: '4px' }}>Correo Electrónico</label>
+                  <input type="email" value={regEmail} onChange={(e) => setRegEmail(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '13px' }} required />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: '4px' }}>Contraseña</label>
+                  <input type="password" value={regPassword} onChange={(e) => setRegPassword(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '13px' }} required />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: '4px' }}>F. Nacimiento</label>
+                    <input type="date" value={regFechaNac} onChange={(e) => setRegFechaNac(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '13px' }} required />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: '4px' }}>Grupo Sisbén</label>
+                    <select value={regSisben} onChange={(e) => setRegSisben(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '13px' }}>
+                      <option value="A1">A1</option><option value="A2">A2</option><option value="B1">B1</option><option value="B2">B2</option><option value="B3">B3</option><option value="B4">B4</option><option value="C1">C1</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: '4px' }}>Zona</label>
+                  <select value={regZona} onChange={(e) => setRegZona(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '13px' }}>
+                    <option value="Urbana">Urbana</option>
+                    <option value="Rural">Rural</option>
+                  </select>
+                </div>
+
+                <button 
+                  type="submit"
+                  style={{ background: '#38bdf8', color: '#0f172a', border: 'none', padding: '10px', borderRadius: '6px', fontWeight: '600', cursor: 'pointer', fontSize: '14px', marginTop: '8px' }}>
+                  Completar Registro
+                </button>
+              </form>
+
+              <div style={{ marginTop: '16px', textAlign: 'center', borderTop: '1px solid #334155', paddingTop: '12px' }}>
+                <button 
+                  onClick={() => setModoRegistro(false)}
+                  style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '13px' }}>
+                  ← Volver al inicio de sesión
+                </button>
+              </div>
+            </div>
+          )}
+
         </div>
+      </div>
+    );
+  }
+
+  // Interfaz de Usuario Autenticado (Administrador o Ciudadano)
+  return (
+    <div style={{ minHeight: '100vh', background: '#0f172a', color: '#f8fafc', display: 'flex', flexDirection: 'column' }}>
+      
+      {/* Header General */}
+      <header style={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        padding: '16px 32px', 
+        borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+        background: 'rgba(15, 23, 42, 0.9)',
+        backdropFilter: 'blur(10px)',
+        position: 'sticky',
+        top: 0,
+        zIndex: 100
+      }}>
+        
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+            <h1 style={{ fontSize: '17px', fontWeight: '700', margin: 0, color: '#f8fafc' }}>Alcaldía de Valencia</h1>
+            <span style={{ color: '#94a3b8', fontSize: '13px' }}>| Focalización Social</span>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <span style={{ fontSize: '13px', color: '#94a3b8' }}>
+            Hola, <strong style={{ color: '#fff' }}>{usuarioActual?.nombre}</strong> ({usuarioActual?.rol})
+          </span>
+
+          {usuarioActual?.rol === 'admin' && (
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button 
+                onClick={() => setVistaActual('admin')}
+                style={{ background: vistaActual === 'admin' ? '#38bdf8' : 'transparent', color: vistaActual === 'admin' ? '#0f172a' : '#94a3b8', border: '1px solid rgba(255,255,255,0.1)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }}>
+                Panel Admin
+              </button>
+            </div>
+          )}
+
+          <button 
+            onClick={cerrarSesion}
+            style={{ background: '#EF4444', border: 'none', color: '#FFFFFF', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }}>
+            Cerrar Sesión
+          </button>
+        </div>
+
       </header>
 
-      {/* Cuerpo Central */}
-      <main className="app-container">
-        {vista === 'admin' && esAdmin ? (
-          <AdminPanel />
+      {/* Contenido según el rol y vista */}
+      <main style={{ flex: 1, padding: '32px', maxWidth: '1200px', width: '100%', margin: '0 auto' }}>
+        {usuarioActual?.rol === 'admin' && vistaActual === 'admin' ? (
+          <AdminPanel onLogout={cerrarSesion} />
         ) : (
-          <CiudadanoPanel 
-            onLogin={manejarLogin} 
-            usuarioSesion={usuarioSesion} 
-            onLogout={manejarLogout} 
-          />
+          /* PORTAL CIUDADANO ACTIVO */
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '24px' }}>
+              <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#38bdf8', marginBottom: '8px' }}>Mi Perfil Ciudadano</h2>
+              <p style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '20px' }}>Consulta tu información de Sisbén, zona y los programas sociales a los que has sido focalizado.</p>
+
+              {cargandoPortal ? (
+                <p style={{ color: '#94a3b8' }}>Cargando información...</p>
+              ) : datosCiudadanoPortal ? (
+                <div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px', background: '#0f172a', padding: '16px', borderRadius: '8px' }}>
+                    <div>
+                      <span style={{ fontSize: '11px', color: '#94a3b8', display: 'block' }}>Cédula</span>
+                      <strong style={{ fontSize: '14px' }}>{datosCiudadanoPortal.usuario.cedula}</strong>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '11px', color: '#94a3b8', display: 'block' }}>Correo</span>
+                      <strong style={{ fontSize: '14px' }}>{datosCiudadanoPortal.usuario.email}</strong>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '11px', color: '#94a3b8', display: 'block' }}>Grupo Sisbén</span>
+                      <strong style={{ fontSize: '14px', color: '#38bdf8' }}>{datosCiudadanoPortal.usuario.sisben_grupo}</strong>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '11px', color: '#94a3b8', display: 'block' }}>Zona</span>
+                      <strong style={{ fontSize: '14px' }}>{datosCiudadanoPortal.usuario.zona}</strong>
+                    </div>
+                  </div>
+
+                  <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '12px' }}>Notificaciones y Subsidios Asignados</h3>
+                  
+                  {datosCiudadanoPortal.notificaciones.length === 0 ? (
+                    <div style={{ background: '#0f172a', padding: '16px', borderRadius: '8px', color: '#94a3b8', fontSize: '13px' }}>
+                      No tienes notificaciones o subsidios asignados por el momento. El motor de focalización te avisará cuando cumplas los requisitos de algún programa social.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {datosCiudadanoPortal.notificaciones.map((n) => (
+                        <div key={n.id} style={{ background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.2)', padding: '14px', borderRadius: '8px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                            <strong style={{ color: '#22C55E', fontSize: '14px' }}>{n.subsidio}</strong>
+                            <span style={{ fontSize: '11px', color: '#94a3b8' }}>{new Date(n.fecha_notificacion).toLocaleDateString()}</span>
+                          </div>
+                          <p style={{ fontSize: '13px', color: '#f8fafc', margin: 0 }}>{n.mensaje}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div style={{ marginTop: '20px' }}>
+                    <a 
+                      href={`http://localhost:5000/api/pdf/descargar/${datosCiudadanoPortal.usuario.cedula}`} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      style={{
+                        display: 'inline-block',
+                        padding: '10px 16px',
+                        background: '#16a34a',
+                        color: '#ffffff',
+                        fontWeight: '600',
+                        borderRadius: '8px',
+                        textDecoration: 'none',
+                        fontSize: '13px'
+                      }}
+                    >
+                      📄 Descargar Certificado de Beneficiario (PDF)
+                    </a>
+                  </div>
+
+                </div>
+              ) : (
+                <p style={{ color: '#ef4444' }}>No se pudieron cargar los datos del perfil.</p>
+              )}
+            </div>
+          </div>
         )}
       </main>
+
     </div>
   );
 }
-
-export default App;
