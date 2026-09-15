@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto'); // Necesario para generar el token seguro de recuperación
 
 let db;
 try {
@@ -77,6 +78,87 @@ router.post('/login', async (req, res) => {
   } catch (error) {
     console.error('Error en login:', error);
     res.status(500).json({ error: 'Error en el servidor durante el login' });
+  }
+});
+
+// 1. SOLICITAR RECUPERACIÓN DE CONTRASEÑA (Localhost)
+router.post('/recuperar-password', async (req, res) => {
+  const { email } = req.body;
+
+  try {
+    const [rows] = await db.query('SELECT * FROM usuarios WHERE email = ?', [email]);
+    if (rows.length === 0) {
+      // Por seguridad respondemos con éxito genérico para no filtrar qué correos existen
+      return res.json({ mensaje: 'Si el correo está registrado, se han generado las instrucciones de recuperación.' });
+    }
+
+    const usuario = rows[0];
+
+    // Generar un token aleatorio y darle 15 minutos de vigencia
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const tokenExpires = new Date(Date.now() + 15 * 60 * 1000);
+
+    await db.query(
+      'UPDATE usuarios SET reset_token = ?, reset_token_expires = ? WHERE id = ?',
+      [resetToken, tokenExpires, usuario.id]
+    );
+
+    // Como trabajamos en localhost, imprimimos el token claramente en tu terminal de Node.js
+    console.log('\n====================================================');
+    console.log(`[RECUPERACIÓN DE CONTRASEÑA] Correo: ${email}`);
+    console.log(`TOKEN DE ACCESO: ${resetToken}`);
+    console.log('====================================================\n');
+
+    res.json({ mensaje: 'Si el correo está registrado, se han generado las instrucciones de recuperación.' });
+  } catch (error) {
+    console.error('Error en recuperación:', error);
+    res.status(500).json({ error: 'Error interno en el servidor' });
+  }
+});
+
+// 2. RESTABLECER CONTRASEÑA CON EL TOKEN
+router.post('/restablecer-password', async (req, res) => {
+  const { token, nuevaPassword } = req.body;
+
+  console.log('\n--- INTENTO DE RESTABLECIMIENTO ---');
+  console.log('Token recibido desde el frontend:', token);
+
+  try {
+    // 1. Busquemos primero SOLO por el token para ver si existe en la BD
+    const [rowsToken] = await db.query(
+      'SELECT id, email, reset_token, reset_token_expires FROM usuarios WHERE reset_token = ?',
+      [token.trim()]
+    );
+
+    if (rowsToken.length === 0) {
+      console.log('DIAGNÓSTICO: El token NO se encontró en la base de datos.');
+      return res.status(400).json({ error: 'El token no existe en la base de datos.' });
+    }
+
+    const usuario = rowsToken[0];
+    console.log('Usuario encontrado:', usuario.email);
+    console.log('Fecha de expiración en BD:', usuario.reset_token_expires);
+    console.log('Fecha actual evaluada:', new Date());
+
+    // 2. Verificar si ya expiró
+    if (new Date(usuario.reset_token_expires) < new Date()) {
+      console.log('DIAGNÓSTICO: El token ha expirado.');
+      return res.status(400).json({ error: 'El token ha expirado.' });
+    }
+
+    // Si pasa las validaciones, actualizamos
+    const hashedPassword = await bcrypt.hash(nuevaPassword, 10);
+
+    await db.query(
+      'UPDATE usuarios SET password = ?, reset_token = NULL, reset_token_expires = NULL WHERE id = ?',
+      [hashedPassword, usuario.id]
+    );
+
+    console.log('DIAGNÓSTICO: Contraseña actualizada con éxito.\n');
+    res.json({ mensaje: 'Contraseña actualizada con éxito.' });
+  } catch (error) {
+    console.error('Error al restablecer contraseña:', error);
+    res.status(500).json({ error: 'Error interno en el servidor' });
   }
 });
 
