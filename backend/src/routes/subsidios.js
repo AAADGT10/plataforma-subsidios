@@ -8,21 +8,17 @@ const fs = require('fs');
 // POST /api/subsidios - Crear un subsidio con sus criterios dinámicos
 router.post('/', async (req, res) => {
   const { nombre, descripcion, cupos, criterios } = req.body;
-  
-  // Obtenemos una conexión del pool para manejar la transacción
   const connection = await pool.getConnection();
 
   try {
     await connection.beginTransaction();
 
-    // 1. Insertar el subsidio principal
     const [subsidioResult] = await connection.query(
       'INSERT INTO subsidios (nombre, descripcion, cupos) VALUES (?, ?, ?)',
       [nombre, descripcion, cupos]
     );
     const subsidioId = subsidioResult.insertId;
 
-   // 2. Insertar cada criterio dinámico asociado a este subsidio
     if (criterios && criterios.length > 0) {
       const criteriosValues = criterios.map(c => [
         subsidioId,
@@ -37,16 +33,14 @@ router.post('/', async (req, res) => {
       );
     }
 
-    // Si todo sale bien, confirmamos los cambios en la BD
     await connection.commit();
     res.status(201).json({ mensaje: 'Subsidio y criterios creados con éxito', subsidioId });
 
   } catch (error) {
-    // Si algo falla, revertimos cualquier cambio realizado
     await connection.rollback();
     res.status(500).json({ error: 'Error al crear el subsidio', detalle: error.message });
   } finally {
-    connection.release(); // Liberar la conexión de vuelta al pool
+    connection.release();
   }
 });
 
@@ -65,7 +59,6 @@ router.get('/', async (req, res) => {
     const [subsidios] = await pool.query(query, queryParams);
     const [criterios] = await pool.query('SELECT * FROM criterios_subsidio');
 
-    // Mapeamos los criterios a sus respectivos subsidios
     const resultado = subsidios.map(s => ({
       ...s,
       criterios: criterios.filter(c => c.subsidio_id === s.id)
@@ -107,14 +100,12 @@ router.get('/:id/pdf-beneficiarios', async (req, res) => {
   const { id } = req.params;
 
   try {
-    // 1. Obtener los datos del subsidio
     const [subsidios] = await pool.query('SELECT * FROM subsidios WHERE id = ?', [id]);
     if (subsidios.length === 0) {
       return res.status(404).json({ error: 'Subsidio no encontrado' });
     }
     const subsidio = subsidios[0];
 
-    // 2. Obtener los beneficiarios que tienen una notificación asignada para este subsidio
     const [beneficiarios] = await pool.query(
       `SELECT DISTINCT u.cedula, u.nombre, u.email, u.sisben_grupo, u.zona 
        FROM notificaciones n 
@@ -123,18 +114,13 @@ router.get('/:id/pdf-beneficiarios', async (req, res) => {
       [id]
     );
 
-    // 3. Configurar la respuesta PDF con pdfkit
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename=beneficiarios_${id}.pdf`);
 
     const doc = new PDFDocument({ margin: 50, size: 'LETTER' });
     doc.pipe(res);
 
-    // ==========================================
-    // ENCABEZADO INSTITUCIONAL CON LOGO
-    // ==========================================
     const logoPath = path.join(__dirname, '../../bk-assets/logo-valencia.jpg');
-    
     if (fs.existsSync(logoPath)) {
       doc.image(logoPath, 50, 40, { width: 50 });
     }
@@ -144,12 +130,8 @@ router.get('/:id/pdf-beneficiarios', async (req, res) => {
     doc.font('Helvetica-Bold').fontSize(11).fillColor('#0284c7').text('ALCALDÍA MUNICIPAL DE VALENCIA', 115, 71);
     doc.font('Helvetica').fontSize(8).fillColor('#64748b').text('Sistema de Focalización y Gestión de Programas Sociales', 115, 85);
 
-    // Línea divisoria superior
     doc.strokeColor('#cbd5e1').lineWidth(1).moveTo(50, 105).lineTo(562, 105).stroke();
 
-    // ==========================================
-    // TÍTULO Y METADATOS DEL REPORTE
-    // ==========================================
     doc.moveDown(2.5);
     doc.font('Helvetica-Bold').fontSize(13).fillColor('#0f172a').text('LISTADO OFICIAL DE BENEFICIARIOS', { align: 'center' });
     doc.moveDown(0.2);
@@ -160,9 +142,6 @@ router.get('/:id/pdf-beneficiarios', async (req, res) => {
     doc.font('Helvetica').fontSize(9).fillColor('#64748b').text(`Fecha de emisión: ${new Date().toLocaleDateString('es-CO')} | Total Registros: ${beneficiarios.length}`, { align: 'center' });
     doc.moveDown(1.5);
 
-    // ==========================================
-    // TABLA DE BENEFICIARIOS (Sin mostrar Sisbén)
-    // ==========================================
     if (beneficiarios.length === 0) {
       doc.font('Helvetica').fontSize(10).fillColor('#64748b').text('No se encuentran ciudadanos registrados como beneficiarios para este programa actualmente.', { align: 'center' });
     } else {
@@ -179,13 +158,11 @@ router.get('/:id/pdf-beneficiarios', async (req, res) => {
       doc.font('Helvetica').fontSize(8).fillColor('#334155');
 
       beneficiarios.forEach((b, index) => {
-        // Control de salto de página automático
         if (currentY > 700) {
           doc.addPage();
           currentY = 50;
         }
 
-        // Fondo alternado para filas (Efecto cebra)
         if (index % 2 === 0) {
           doc.rect(50, currentY, 512, 20).fill('#f8fafc');
         }
@@ -196,16 +173,11 @@ router.get('/:id/pdf-beneficiarios', async (req, res) => {
         doc.text(b.nombre || 'Sin Nombre', 225, currentY + 6, { width: 180, ellipsis: true });
         doc.text(b.zona || 'N/A', 415, currentY + 6, { width: 145 });
 
-        // Línea sutil separadora entre filas
         doc.strokeColor('#e2e8f0').lineWidth(0.5).moveTo(50, currentY + 20).lineTo(562, currentY + 20).stroke();
-
         currentY += 20;
       });
     }
 
-    // ==========================================
-    // PIE DE PÁGINA EN TODAS LAS PÁGINAS
-    // ==========================================
     const pages = doc.bufferedPageCount;
     for (let i = 0; i < pages; i++) {
       doc.switchToPage(i);

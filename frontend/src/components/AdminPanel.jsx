@@ -14,6 +14,14 @@ export default function AdminPanel({ onLogout }) {
   const [resultadoCiudadano, setResultadoCiudadano] = useState(null);
   const [errorBusqueda, setErrorBusqueda] = useState('');
 
+  // Generadores automáticos basados en la metodología oficial de Sisbén IV
+  const gruposSisben = [
+    ...Array.from({ length: 5 }, (_, i) => `A${i + 1}`),
+    ...Array.from({ length: 7 }, (_, i) => `B${i + 1}`),
+    ...Array.from({ length: 18 }, (_, i) => `C${i + 1}`),
+    ...Array.from({ length: 20 }, (_, i) => `D${i + 1}`)
+  ];
+
   const cargarSubsidios = async () => {
     try {
       const res = await getSubsidios();
@@ -28,12 +36,19 @@ export default function AdminPanel({ onLogout }) {
   }, []);
 
   const agregarCriterio = () => {
-    setCriterios([...criterios, { campo: 'sisben_grupo', operador: '<=', valor: '' }]);
+    setCriterios([...criterios, { campo: 'sisben_grupo', operador: '<=', valor: 'B4' }]);
   };
 
   const actualizarCriterio = (index, campo, valor) => {
     const nuevosCriterios = [...criterios];
     nuevosCriterios[index][campo] = valor;
+
+    if (campo === 'campo') {
+      if (valor === 'sisben_grupo') nuevosCriterios[index].valor = 'B4';
+      else if (valor === 'zona') nuevosCriterios[index].valor = 'Urbana';
+      else if (valor === 'edad') nuevosCriterios[index].valor = '18';
+    }
+
     setCriterios(nuevosCriterios);
   };
 
@@ -98,7 +113,7 @@ export default function AdminPanel({ onLogout }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       
-      {/* Botones de control rápido superior (incluyendo opción de cerrar sesión alternativo si se requiere) */}
+      {/* Botones de control superior */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         {onLogout && (
           <button 
@@ -138,7 +153,7 @@ export default function AdminPanel({ onLogout }) {
         </button>
       </div>
 
-      {/* Módulo de Búsqueda de Ciudadano */}
+      {/* Módulo de Búsqueda */}
       <div className="glass-card">
         <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px' }}>Consultar Ciudadano por Cédula</h3>
         
@@ -259,6 +274,7 @@ export default function AdminPanel({ onLogout }) {
             
             {criterios.map((criterio, index) => (
               <div key={index} style={{ display: 'flex', gap: '10px', marginBottom: '10px', alignItems: 'center' }}>
+                
                 <select 
                   value={criterio.campo} 
                   onChange={(e) => actualizarCriterio(index, 'campo', e.target.value)}
@@ -279,15 +295,36 @@ export default function AdminPanel({ onLogout }) {
                   <option value=">=">&gt;=</option>
                 </select>
 
-                <input 
-                  type="text" 
-                  placeholder="Valor (ej. B4, Rural, 60)" 
-                  value={criterio.valor} 
-                  onChange={(e) => actualizarCriterio(index, 'valor', e.target.value)} 
-                  required 
-                  className="styled-input" 
-                  style={{ flex: 1, marginBottom: 0 }} 
-                />
+                {criterio.campo === 'sisben_grupo' ? (
+                  <select 
+                    value={criterio.valor} 
+                    onChange={(e) => actualizarCriterio(index, 'valor', e.target.value)}
+                    className="styled-input" 
+                    style={{ flex: 1, marginBottom: 0 }}>
+                    {gruposSisben.map((grupo) => (
+                      <option key={grupo} value={grupo}>{grupo}</option>
+                    ))}
+                  </select>
+                ) : criterio.campo === 'zona' ? (
+                  <select 
+                    value={criterio.valor} 
+                    onChange={(e) => actualizarCriterio(index, 'valor', e.target.value)}
+                    className="styled-input" 
+                    style={{ flex: 1, marginBottom: 0 }}>
+                    <option value="Urbana">Urbana</option>
+                    <option value="Rural">Rural</option>
+                  </select>
+                ) : (
+                  <input 
+                    type="number" 
+                    placeholder="Ej. 18, 60" 
+                    value={criterio.valor} 
+                    onChange={(e) => actualizarCriterio(index, 'valor', e.target.value)} 
+                    required 
+                    className="styled-input" 
+                    style={{ flex: 1, marginBottom: 0 }} 
+                  />
+                )}
 
                 {criterios.length > 1 && (
                   <button 

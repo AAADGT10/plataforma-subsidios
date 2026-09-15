@@ -42,6 +42,17 @@ export default function App() {
   const [regZona, setRegZona] = useState('Urbana');
   const [mensajeRegistro, setMensajeRegistro] = useState('');
 
+  // Estado para el Modal Elegante de Éxito en Registro
+  const [modalRegistroExitoso, setModalRegistroExitoso] = useState(false);
+
+  // Lista completa de grupos de Sisbén IV oficiales (A1-A5, B1-B7, C1-C18, D1-D20)
+  const gruposSisbenOficiales = [
+    ...Array.from({ length: 5 }, (_, i) => `A${i + 1}`),
+    ...Array.from({ length: 7 }, (_, i) => `B${i + 1}`),
+    ...Array.from({ length: 18 }, (_, i) => `C${i + 1}`),
+    ...Array.from({ length: 20 }, (_, i) => `D${i + 1}`)
+  ];
+
   // Estados del Portal Ciudadano (para el usuario logueado)
   const [datosCiudadanoPortal, setDatosCiudadanoPortal] = useState(null);
   const [cargandoPortal, setCargandoPortal] = useState(false);
@@ -103,13 +114,18 @@ export default function App() {
         rol: 'ciudadano'
       });
 
-      alert('¡Registro exitoso! Ahora puedes iniciar sesión con tu correo y contraseña.');
-      setModoRegistro(false);
-      setEmailInput(regEmail);
-      setPasswordInput(regPassword);
+      // Activamos el modal elegante en lugar del alert()
+      setModalRegistroExitoso(true);
     } catch (err) {
       setMensajeRegistro(err.response?.data?.error || 'Error al registrarse.');
     }
+  };
+
+  const cerrarModalRegistro = () => {
+    setModalRegistroExitoso(false);
+    setModoRegistro(false);
+    setEmailInput(regEmail);
+    setPasswordInput(regPassword);
   };
 
   const cerrarSesion = () => {
@@ -149,7 +165,7 @@ export default function App() {
                     type="email" 
                     value={emailInput}
                     onChange={(e) => setEmailInput(e.target.value)}
-                    style={{ width: '100%', padding: '10px 12px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '14px' }}
+                    style={{ width: '100%', padding: '10px 12px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '14px', boxSizing: 'border-box' }}
                     placeholder="correo@dominio.com"
                     required
                   />
@@ -161,7 +177,7 @@ export default function App() {
                     type="password" 
                     value={passwordInput}
                     onChange={(e) => setPasswordInput(e.target.value)}
-                    style={{ width: '100%', padding: '10px 12px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '14px' }}
+                    style={{ width: '100%', padding: '10px 12px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '14px', boxSizing: 'border-box' }}
                     placeholder="••••••••"
                     required
                   />
@@ -198,41 +214,43 @@ export default function App() {
 
               <form onSubmit={manejarRegistro} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: '4px' }}>Cédula</label>
-                  <input type="text" value={regCedula} onChange={(e) => setRegCedula(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '13px' }} required />
+                  <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: '4px' }}>N.º Documento</label>
+                  <input type="text" value={regCedula} onChange={(e) => setRegCedula(e.target.value)} placeholder="Número de cédula o tarjeta..." style={{ width: '100%', padding: '8px 10px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '13px', boxSizing: 'border-box' }} required />
                 </div>
 
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: '4px' }}>Nombre Completo</label>
-                  <input type="text" value={regNombre} onChange={(e) => setRegNombre(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '13px' }} required />
+                  <input type="text" value={regNombre} onChange={(e) => setRegNombre(e.target.value)} placeholder="Nombres y Apellidos" style={{ width: '100%', padding: '8px 10px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '13px', boxSizing: 'border-box' }} required />
                 </div>
 
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: '4px' }}>Correo Electrónico</label>
-                  <input type="email" value={regEmail} onChange={(e) => setRegEmail(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '13px' }} required />
+                  <input type="email" value={regEmail} onChange={(e) => setRegEmail(e.target.value)} placeholder="correo@dominio.com" style={{ width: '100%', padding: '8px 10px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '13px', boxSizing: 'border-box' }} required />
                 </div>
 
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: '4px' }}>Contraseña</label>
-                  <input type="password" value={regPassword} onChange={(e) => setRegPassword(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '13px' }} required />
+                  <input type="password" value={regPassword} onChange={(e) => setRegPassword(e.target.value)} placeholder="••••••••" style={{ width: '100%', padding: '8px 10px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '13px', boxSizing: 'border-box' }} required />
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                   <div>
                     <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: '4px' }}>F. Nacimiento</label>
-                    <input type="date" value={regFechaNac} onChange={(e) => setRegFechaNac(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '13px' }} required />
+                    <input type="date" value={regFechaNac} onChange={(e) => setRegFechaNac(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '13px', boxSizing: 'border-box' }} required />
                   </div>
                   <div>
                     <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: '4px' }}>Grupo Sisbén</label>
-                    <select value={regSisben} onChange={(e) => setRegSisben(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '13px' }}>
-                      <option value="A1">A1</option><option value="A2">A2</option><option value="B1">B1</option><option value="B2">B2</option><option value="B3">B3</option><option value="B4">B4</option><option value="C1">C1</option>
+                    <select value={regSisben} onChange={(e) => setRegSisben(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '13px', boxSizing: 'border-box' }}>
+                      {gruposSisbenOficiales.map((grupo) => (
+                        <option key={grupo} value={grupo}>{grupo}</option>
+                      ))}
                     </select>
                   </div>
                 </div>
 
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', color: '#94a3b8', marginBottom: '4px' }}>Zona</label>
-                  <select value={regZona} onChange={(e) => setRegZona(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '13px' }}>
+                  <select value={regZona} onChange={(e) => setRegZona(e.target.value)} style={{ width: '100%', padding: '8px 10px', background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '13px', boxSizing: 'border-box' }}>
                     <option value="Urbana">Urbana</option>
                     <option value="Rural">Rural</option>
                   </select>
@@ -250,6 +268,63 @@ export default function App() {
                   onClick={() => setModoRegistro(false)}
                   style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '13px' }}>
                   ← Volver al inicio de sesión
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Modal / Popup Elegante de Éxito en Registro */}
+          {modalRegistroExitoso && (
+            <div style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              width: '100vw',
+              height: '100vh',
+              background: 'rgba(15, 23, 42, 0.8)',
+              backdropFilter: 'blur(5px)',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              zIndex: 1000
+            }}>
+              <div style={{
+                background: '#1e293b',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                padding: '30px',
+                borderRadius: '16px',
+                textAlign: 'center',
+                maxWidth: '380px',
+                width: '90%',
+                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)'
+              }}>
+                <div style={{ 
+                  fontSize: '32px', 
+                  marginBottom: '12px', 
+                  background: 'rgba(34, 197, 94, 0.1)', 
+                  width: '64px', 
+                  height: '64px', 
+                  lineHeight: '64px', 
+                  borderRadius: '50%', 
+                  margin: '0 auto 16px auto',
+                  border: '1px solid rgba(34, 197, 94, 0.3)'
+                }}>
+                  ✅
+                </div>
+                
+                <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#f8fafc', marginBottom: '8px' }}>
+                  ¡Registro Exitoso!
+                </h3>
+                
+                <p style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '20px', lineHeight: '1.5' }}>
+                  Tu información ha sido registrada correctamente. Ahora puedes iniciar sesión con tu correo y contraseña.
+                </p>
+
+                <button 
+                  onClick={cerrarModalRegistro}
+                  style={{ background: '#38bdf8', color: '#0f172a', border: 'none', width: '100%', padding: '10px', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' }}
+                >
+                  Iniciar Sesión
                 </button>
               </div>
             </div>
@@ -310,7 +385,7 @@ export default function App() {
       </header>
 
       {/* Contenido según el rol y vista */}
-      <main style={{ flex: 1, padding: '32px', maxWidth: '1200px', width: '100%', margin: '0 auto' }}>
+      <main style={{ flex: 1, padding: '32px', maxWidth: '1200px', width: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
         {usuarioActual?.rol === 'admin' && vistaActual === 'admin' ? (
           <AdminPanel onLogout={cerrarSesion} />
         ) : (
@@ -326,7 +401,7 @@ export default function App() {
                 <div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px', background: '#0f172a', padding: '16px', borderRadius: '8px' }}>
                     <div>
-                      <span style={{ fontSize: '11px', color: '#94a3b8', display: 'block' }}>Cédula</span>
+                      <span style={{ fontSize: '11px', color: '#94a3b8', display: 'block' }}>N.º Documento</span>
                       <strong style={{ fontSize: '14px' }}>{datosCiudadanoPortal.usuario.cedula}</strong>
                     </div>
                     <div>
